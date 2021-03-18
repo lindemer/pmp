@@ -88,14 +88,8 @@ class Pmp(configs : Int) extends Component {
   }
 
   val cfgs = Mem(new PmpCfg(), configs / 4)
-  val addrs = Mem(UInt(32 bits), configs)
+  val addrs = Mem(UInt(30 bits), configs)
 
-  // Karol: This should pass the test but doesn't.
-  addrs.write(io.index, io.writeData, io.write)
-  io.readData := addrs.readSync(io.index)
-  
-  // Karol: This code runs but has the same issue.
-  /*
   val cfg = cfgs.readAsync(csrNum)
   when(io.select) {
     
@@ -112,10 +106,9 @@ class Pmp(configs : Int) extends Component {
     val locked = cfg.l(io.index(1 downto 0))
     addrs.write(
       io.index,
-      io.writeData,
+      io.writeData(29 downto 0),
       io.write && ~locked
     )
-    io.readData := addrs.readAsync(io.index)
+    io.readData :=  U"2'00" @@ addrs.readSync(io.index)
   }
-  */
 }
