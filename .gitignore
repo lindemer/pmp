@@ -1,6 +1,7 @@
 *.class
 *.log
 .bloop/
+.bsp
 .metals/
 .vscode/
 project/

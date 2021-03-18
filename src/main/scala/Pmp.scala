@@ -55,68 +55,61 @@ import spinal.lib._
  * register defines a 4-byte wide region.
  */
 
-case class PmpCell(preset : Bits = B"8'0") extends Bundle {
-  val r = preset(0)
-  val w = preset(1)
-  val x = preset(2)
-  val a = preset(4 downto 3)
-  val l = preset(7)
+class PmpCfg(preset : UInt = U"32'0") extends Bundle {
+  val encoded = preset
 
-  override def asBits : Bits = {
-    B(8 bits, 7 -> l, (4 downto 3) -> a, 2 -> x, 1 -> w, 0 -> r)
-  }
-}
-
-class PmpConf(preset : Bits = B"32'0") extends Bundle {
-  val cells = preset.subdivideIn(8 bits)
-      .reverse.map(x => new PmpCell(x))
-
-  def toMask : Bits = {
-    val locks = cells.map(info => info.l)
-    locks.map(l => ~(l ## l ## l ## l ## l ## l ## l ## l))
-      .reverse.foldLeft(Bits(0 bits))(_ ## _)
-  }
-
-  override def asBits : Bits = {
-    cells.map(info => info.asBits)
-      .reverse.foldLeft(Bits(0 bits))(_ ## _)
+  def cfg = encoded.subdivideIn(8 bits)
+  def r = cfg.map(c => c(0))
+  def w = cfg.map(c => c(1))
+  def x = cfg.map(c => c(2))
+  def a = cfg.map(c => c(4 downto 3))
+  def l = cfg.map(c => c(7))
+  
+  def asMask : Bits = { 
+    val mask = l.map(l => l ? B"8'x00" | B"8'xff")
+    mask(0) ## mask(1) ## mask(2) ## mask(3)
   }
 }
 
 class Pmp(configs : Int) extends Component {
   assert(configs % 4 == 0)
+  assert(configs <= 16)
 
   val io = new Bundle {
     val write, select = in Bool
-    val index = in UInt(4 bits)
-    val readData = out Bits(32 bits)
-    val writeData = in Bits(32 bits)
+    val index = in UInt(log2Up(configs) bits)
+    val writeData = in UInt(32 bits)
+    val readData = out UInt(32 bits)
   }
 
-  val pmpConfs = Mem(new PmpConf(), configs / 4)
-  val pmpAddrs = Mem(Bits(32 bits), configs)
+  def csrNum = configs match {
+    case 4 => U"0"
+    case _ => io.index((log2Up(configs) - 1) downto 2)
+  }
 
-  val conf = pmpConfs.readAsync(io.index(3 downto 2), readFirst)
-
+  val cfgs = Mem(new PmpCfg(), configs / 4)
+  val addrs = Mem(UInt(32 bits), configs)
+  val cfg = cfgs.readAsync(csrNum)
+  
   when(io.select) {
-
-    pmpConfs.write(
-      io.index(3 downto 2),
-      new PmpConf(io.writeData),
-      io.write,
-      conf.toMask
+    
+    cfgs.write(
+      csrNum,
+      new PmpCfg(io.writeData),
+      io.write//,
+      //cfg.asMask
     )
-    io.readData := conf.asBits
-
+    io.readData := cfg.encoded
+    
   } otherwise {
-
-    val locked = conf.cells(io.index(1 downto 0)).l
-    pmpAddrs.write(
+    
+    //val locked = cfg.l(io.index(1 downto 0))
+    addrs.write(
       io.index,
       io.writeData,
-      io.write && ~locked
+      io.write// && ~locked
     )
-    io.readData := pmpAddrs.readAsync(io.index, readFirst)
-
+    io.readData := addrs.readAsync(io.index)
+      
   }
 }
