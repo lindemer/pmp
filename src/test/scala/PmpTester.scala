@@ -22,7 +22,7 @@ class PmpTester extends FunSuite {
         dut.io.write #= true
         dut.io.select #= false
         dut.io.index #= idx
-        dut.io.writeData #= BigInt("0", 16)
+        dut.io.writeData #= BigInt("ffffffff", 16)
         dut.clockDomain.waitSampling(Random.nextInt(10))
       }
       for (idx <- 0 until 16) {
