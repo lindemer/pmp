@@ -87,28 +87,34 @@ class Pmp(configs : Int) extends Component {
     case _ => io.index((log2Up(configs) - 1) downto 2)
   }
 
-  val cfgs = Mem(new PmpCfg(), configs / 4)
-  val addrs = Mem(UInt(30 bits), configs)
+  val cfgs = Mem(new PmpCfg(), Array.fill(configs / 4)(new PmpCfg(U"32'0")))
+  val addrs = Mem(UInt(30 bits), Array.fill(configs)(U"30'0"))
 
-  val cfg = cfgs.readAsync(csrNum)
+  val cfg = cfgs.readAsync(configs match {
+    case 4 => U"0"
+    case _ => io.index((log2Up(configs) - 1) downto 2)
+  })
+  
+  cfgs.write(
+    configs match {
+      case 4 => U"0"
+      case _ => io.index((log2Up(configs) - 3) downto 0)
+    },
+    new PmpCfg(io.writeData),
+    io.write && io.select,
+    cfg.asMask
+  ) 
+  
+  val locked = cfg.l(io.index(1 downto 0))
+  addrs.write(
+    io.index,
+    io.writeData(29 downto 0),
+    io.write && ~io.select && ~locked 
+  )
+
   when(io.select) {
-    
-    cfgs.write(
-      csrNum,
-      new PmpCfg(io.writeData),
-      io.write,
-      cfg.asMask
-    )
     io.readData := cfg.encoded
-    
   } otherwise {
-    
-    val locked = cfg.l(io.index(1 downto 0))
-    addrs.write(
-      io.index,
-      io.writeData(29 downto 0),
-      io.write && ~locked
-    )
-    io.readData :=  U"2'00" @@ addrs.readSync(io.index)
+    io.readData := U"2'00" @@ addrs.readSync(io.index)
   }
 }
