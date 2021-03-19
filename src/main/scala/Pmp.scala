@@ -84,7 +84,7 @@ class Pmp(count : Int) extends Component {
       switch(csrNum) {
         for (i <- 0 until (count / 4)) {
           is(i) {
-
+            
             // for each region in the configuration CSR
             for (j <- Range(0, 32, 8)) {
 
@@ -92,7 +92,7 @@ class Pmp(count : Int) extends Component {
               when (~pmpCfg(j + 7 + 32 * i)) {
                 val readSet = j + 7 downto j
                 val writeSet = j + 7 + 32 * i downto j + 32 * i
-                pmpCfg(readSet).assignFromBits(io.writeData.asBits(readSet))
+                pmpCfg(writeSet).assignFromBits(io.writeData.asBits(readSet))
               }
             }
           }
