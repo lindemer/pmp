@@ -13,17 +13,24 @@ class PmpTester extends FunSuite {
   val pmps = 16
 
   test("compile") {
-    compiled = PmpConfig().compile(new Pmp(configs = pmps))
+    compiled = PmpConfig().compile(new Pmp(count = pmps))
   }
 
   test("testbench") {
-    compiled.doSim(seed = 1) { dut =>
+    compiled.doSim(seed = 2) { dut =>
       dut.clockDomain.forkStimulus(10)
       for (idx <- 0 until (pmps / 4)) {
         dut.io.write #= true
         dut.io.select #= true
         dut.io.index #= idx
-        dut.io.writeData #= BigInt("0f0f0f8f", 16)
+        dut.io.writeData #= BigInt("ff00ffff", 16)
+        dut.clockDomain.waitSampling(1)
+      }
+      for (idx <- 0 until (pmps / 4)) {
+        dut.io.write #= true
+        dut.io.select #= true
+        dut.io.index #= idx
+        dut.io.writeData #= BigInt("ff00ff00", 16)
         dut.clockDomain.waitSampling(1)
       }
       for (idx <- 0 until pmps) {
@@ -37,7 +44,7 @@ class PmpTester extends FunSuite {
         dut.io.write #= false
         dut.io.select #= false
         dut.io.index #= idx
-        dut.clockDomain.waitSampling(2)
+        dut.clockDomain.waitSampling(1)
         assert(dut.io.readData.toBigInt == 0x12345678, 
           "dut.io.readData missmatch")
       }

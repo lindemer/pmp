@@ -71,38 +71,33 @@ class PmpCfg(preset : UInt = U"32'0") extends Bundle {
   }
 }
 
-class Pmp(configs : Int) extends Component {
-  assert(configs % 4 == 0)
-  assert(configs <= 16)
+class Pmp(count : Int) extends Component {
+  assert(count % 4 == 0)
+  assert(count <= 16)
 
   val io = new Bundle {
     val write, select = in Bool
-    val index = in UInt(log2Up(configs) bits)
+    val index = in UInt(log2Up(count) bits)
     val writeData = in UInt(32 bits)
     val readData = out UInt(32 bits)
   }
+  val cfgs = Mem(new PmpCfg(), Array.fill(count / 4)(new PmpCfg(U"32'0")))
+  val addrs = Mem(UInt(30 bits), count)
 
-  def csrNum = configs match {
+  val cfg = cfgs.readAsync(count match {
     case 4 => U"0"
-    case _ => io.index((log2Up(configs) - 1) downto 2)
-  }
-
-  val cfgs = Mem(new PmpCfg(), Array.fill(configs / 4)(new PmpCfg(U"32'0")))
-  val addrs = Mem(UInt(30 bits), Array.fill(configs)(U"30'0"))
-
-  val cfg = cfgs.readAsync(configs match {
-    case 4 => U"0"
-    case _ => io.index((log2Up(configs) - 1) downto 2)
+    case _ => io.index((log2Up(count) - 1) downto 2)
   })
   
   cfgs.write(
-    configs match {
+    count match {
       case 4 => U"0"
-      case _ => io.index((log2Up(configs) - 3) downto 0)
+      case _ => io.index((log2Up(count) - 3) downto 0)
     },
     new PmpCfg(io.writeData),
     io.write && io.select,
-    cfg.asMask
+    B"32'xffffffff"
+    //cfg.asMask
   ) 
   
   val locked = cfg.l(io.index(1 downto 0))
