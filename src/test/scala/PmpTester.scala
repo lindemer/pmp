@@ -19,18 +19,18 @@ class PmpTester extends FunSuite {
   test("testbench") {
     compiled.doSim(seed = 2) { dut =>
       dut.clockDomain.forkStimulus(10)
-      for (idx <- 0 until (pmps / 4)) {
+      for (idx <- (pmps / 4 - 1) downto 0) {
         dut.io.write #= true
         dut.io.select #= true
         dut.io.index #= idx
-        dut.io.writeData #= BigInt("ff00ffff", 16)
+        dut.io.writeData #= BigInt("0000ff00", 16)
         dut.clockDomain.waitSampling(1)
       }
-      for (idx <- 0 until (pmps / 4)) {
+      for (idx <- (pmps / 4 - 1) downto 0) {
         dut.io.write #= true
         dut.io.select #= true
         dut.io.index #= idx
-        dut.io.writeData #= BigInt("ff00ff00", 16)
+        dut.io.writeData #= BigInt("00ff0000", 16)
         dut.clockDomain.waitSampling(1)
       }
       for (idx <- 0 until pmps) {

@@ -81,26 +81,28 @@ class Pmp(count : Int) extends Component {
     val writeData = in UInt(32 bits)
     val readData = out UInt(32 bits)
   }
-  val cfgs = Mem(new PmpCfg(), Array.fill(count / 4)(new PmpCfg(U"32'0")))
+  val cfgs = Mem(UInt(32 bits), Array.fill(count / 4)(U"32'0"))
   val addrs = Mem(UInt(30 bits), count)
 
   val cfg = cfgs.readAsync(count match {
     case 4 => U"0"
     case _ => io.index((log2Up(count) - 1) downto 2)
   })
-  
+
   cfgs.write(
     count match {
       case 4 => U"0"
       case _ => io.index((log2Up(count) - 3) downto 0)
     },
-    new PmpCfg(io.writeData),
+    io.writeData,
     io.write && io.select,
-    B"32'xffffffff"
-    //cfg.asMask
+    ~(cfg(31) ## B"b11" ## cfg(31) ## cfg(31) ## cfg(31) ## cfg(31) ## cfg(31) ## 
+      cfg(23) ## B"b11" ## cfg(23) ## cfg(23) ## cfg(23) ## cfg(23) ## cfg(23) ## 
+      cfg(15) ## B"b11" ## cfg(15) ## cfg(15) ## cfg(15) ## cfg(15) ## cfg(15) ## 
+      cfg( 7) ## B"b11" ## cfg( 7) ## cfg( 7) ## cfg( 7) ## cfg( 7) ## cfg( 7))
   ) 
   
-  val locked = cfg.l(io.index(1 downto 0))
+  val locked = cfg.subdivideIn(8 bits)(io.index(1 downto 0))(7)
   addrs.write(
     io.index,
     io.writeData(29 downto 0),
@@ -108,7 +110,7 @@ class Pmp(count : Int) extends Component {
   )
 
   when(io.select) {
-    io.readData := cfg.encoded
+    io.readData := cfg
   } otherwise {
     io.readData := U"2'00" @@ addrs.readSync(io.index)
   }
