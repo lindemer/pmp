@@ -9,43 +9,43 @@ import scala.sys.process._
 import scala.util.Random
 
 class PmpTester extends FunSuite {
-  var compiled: SimCompiled[Pmp] = null
+  var compiled: SimCompiled[PmpController] = null
   val pmps = 16
 
   test("compile") {
-    compiled = PmpConfig().compile(new Pmp(count = pmps))
+    compiled = PmpConfig().compile(new PmpController(count = pmps))
   }
 
   test("testbench") {
     compiled.doSim(seed = 2) { dut =>
       dut.clockDomain.forkStimulus(10)
       for (idx <- (pmps / 4 - 1) downto 0) {
-        dut.io.write #= true
+        dut.io.write.valid #= true
         dut.io.select #= true
-        dut.io.index #= idx
-        dut.io.writeData #= BigInt("0000ff00", 16)
+        dut.io.index #= idx << 2
+        dut.io.write.payload #= BigInt("00880000", 16)
         dut.clockDomain.waitSampling(1)
       }
       for (idx <- (pmps / 4 - 1) downto 0) {
-        dut.io.write #= true
+        dut.io.write.valid #= true
         dut.io.select #= true
-        dut.io.index #= idx
-        dut.io.writeData #= BigInt("00ff0000", 16)
+        dut.io.index #= idx << 2
+        dut.io.write.payload #= BigInt("000088ff", 16)
         dut.clockDomain.waitSampling(1)
       }
       for (idx <- 0 until pmps) {
-        dut.io.write #= true
+        dut.io.write.valid #= true
         dut.io.select #= false
         dut.io.index #= idx
-        dut.io.writeData #= BigInt("12345678", 16)
+        dut.io.write.payload #= BigInt("12345678", 16)
         dut.clockDomain.waitSampling(1)
       }
       for (idx <- 0 until pmps) {
-        dut.io.write #= false
+        dut.io.write.valid #= false
         dut.io.select #= false
         dut.io.index #= idx
         dut.clockDomain.waitSampling(1)
-        assert(dut.io.readData.toBigInt == 0x12345678, 
+        assert(dut.io.read.toBigInt == 0x12345678, 
           "dut.io.readData missmatch")
       }
     }

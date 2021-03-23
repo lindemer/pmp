@@ -55,66 +55,134 @@ import spinal.lib._
  * register defines a 4-byte wide region.
  */
 
-class Pmp(count : Int) extends Component {
+trait Pmp {
+  def OFF = 0
+  def TOR = 1
+  def NA4 = 2
+  def NAPOT = 3
+
+  def word = 32
+  def rbit = 0
+  def wbit = 1
+  def xbit = 2
+  def abits = 4 downto 3
+  def lbit = 7
+}
+
+class PmpRegion() extends Bundle {
+  val lbound, rbound = UInt(30 bits)
+  val valid = False
+}
+
+class PmpSetter() extends Component with Pmp {
+  val io = new Bundle {
+    val a = in UInt(2 bits)
+    val addr = in UInt(word bits)
+    val prev = in UInt(30 bits)
+    val region = out(new PmpRegion())
+  }
+
+  io.region.lbound := io.addr(31 downto 2)
+  io.region.rbound := io.addr(31 downto 2)
+
+  switch (io.a) {
+    is (TOR) {
+      io.region.lbound := io.prev
+    }
+    is (NA4) {
+      io.region.rbound := (io.addr + 4)(31 downto 2)
+    }
+    is (NAPOT) {
+      val mask = io.addr & ~(io.addr + 1)
+      val lbound = (io.addr ^ mask)(31 downto 2)
+      io.region.lbound := lbound
+      io.region.rbound := lbound + ((mask + 1)(31 downto 2) |<< 1)
+    }
+  }
+}
+
+class PmpController(count : Int) extends Component with Pmp {
   assert(count % 4 == 0)
   assert(count <= 16)
 
   val io = new Bundle {
-    val write, select = in Bool
+    val select = in Bool
     val index = in UInt(log2Up(count) bits)
-    val writeData = in UInt(32 bits)
-    val readData = out UInt(32 bits)
+    val read = out UInt(word bits)
+    val write = slave Stream(UInt(word bits))
   }
 
-  val pmpAddr = Mem(UInt(32 bits), count)
-  val pmpCfg = Reg(Bits(8 * count bits)) init(0)
-
-  // io.index is a 2-bit CSR selector when accessing pmpCfg
-  val csrNum = count match {
-    case 4 => U"0"
-    case _ => io.index(log2Up(count) - 3 downto 0)
-  }
-  val csr = pmpCfg.subdivideIn(32 bits)(csrNum)
-
-  // io.select === 1 for access to pmpCfg
-  when (io.select) {
-    when (io.write) {
-
-      // get the requested configuration CSR from the bit vector
-      switch(csrNum) {
-        for (i <- 0 until (count / 4)) {
-          is(i) {
-            
-            // for each region in the configuration CSR
-            for (j <- Range(0, 32, 8)) {
-
-              // if the region isn't locked, overwrite it with io.writeData
-              when (~pmpCfg(j + 7 + 32 * i)) {
-                val readSet = j + 7 downto j
-                val writeSet = j + 7 + 32 * i downto j + 32 * i
-                pmpCfg(writeSet).assignFromBits(io.writeData.asBits(readSet))
+  val addrs = Mem(UInt(word bits), count)
+  val cfgs = Reg(Bits(8 * count bits)) init(0)
+  val sel = io.index(log2Up(count) - 1 downto 2)
+  val cfg = cfgs.subdivideIn(word bits)(sel)
+  
+  val csr = new Area {
+    when (io.select) {
+      when (io.write.valid) {
+        switch(sel) {
+          for (i <- 0 until (count / 4)) {
+            is(i) {
+              for (j <- Range(0, word, 8)) {
+                val readRange = j + lbit downto j
+                val writeRange = j + word * i + lbit downto j + word * i
+                val locked = cfgs(j + word * i + lbit)
+                when (~locked) {
+                  val newCfg = io.write.payload.asBits(readRange)
+                  cfgs(writeRange).assignFromBits(newCfg)
+                  if (j != 0 || i != 0) {
+                    when (newCfg(lbit) && newCfg(abits) === TOR) {
+                      cfgs(j + word * i - 1) := True
+                    }
+                  }
+                }
               }
             }
           }
         }
       }
-    }
-    io.readData.assignFromBits(csr)
-
-  // io.select === 0 for access to pmpAddr
-  } otherwise {
-    io.readData := pmpAddr.readAsync(io.index)
-    when (io.write) {
-
-      // check the lock bit on the corresponding configuration register
-      val lock = csr.subdivideIn(8 bits)(io.index(1 downto 0))(7)
-      pmpAddr.write(
-        io.index,
-        io.writeData,
-        io.write && ~io.select && ~lock
-      )
+      io.read.assignFromBits(cfg)
+    } otherwise {
+      when (io.write.valid) {
+        val lock = cfg.subdivideIn(8 bits)(io.index(1 downto 0))(lbit)
+        addrs.write(
+          io.index,
+          io.write.payload,
+          io.write.valid && ~io.select && ~lock
+        )
+      }
+      io.read := addrs.readAsync(io.index)
     }
   }
 
+  val counter = UInt(3 bits)
+  io.write.ready := True
 
+  val regions = Mem(new PmpRegion(), count)
+
+  val pipeline = new Area {
+
+    val index = Reg(UInt(log2Up(count) bits))
+    val setter = new PmpSetter()
+
+    index := io.index
+
+  }
+
+  // stall the region computation 1 cycle to wait for writes
+  //val regionSelect = Reg(UInt(2 bits))
+  //regionSelect := cfgSelect
+
+
+  /*
+   * Pipeline:
+   *  (0) write to pmpcfg#, move setter, not ready
+   *  (1) fix region # + 0, move setter, not ready
+   *  (2) fix region # + 1, move setter, not ready
+   *  (3) fix region # + 2, move setter, not ready
+   *  (4) fix region # + 3, ready
+   * OR
+   *  (0) write to pmpaddr#, move setter, not ready
+   *  (1) fix region #, ready
+   */
 }
