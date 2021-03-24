@@ -71,7 +71,7 @@ trait Pmp {
 
 class PmpRegion() extends Bundle {
   val lBound, rBound = UInt(30 bits)
-  val valid = False
+  val valid = Bool
 }
 
 class PmpSetter() extends Component with Pmp {
@@ -82,21 +82,26 @@ class PmpSetter() extends Component with Pmp {
     val region = out(new PmpRegion())
   }
 
-  io.region.lBound := io.addr(31 downto 2)
-  io.region.rBound := io.addr(31 downto 2)
+  val shifted = io.addr(31 downto 2)
+  io.region.lBound := shifted
+  io.region.rBound := shifted
+  io.region.valid := True
 
   switch (io.a) {
     is (TOR) {
       io.region.lBound := io.prev
     }
     is (NA4) {
-      io.region.rBound := (io.addr + 4)(31 downto 2)
+      io.region.rBound := shifted + 1
     }
     is (NAPOT) {
       val mask = io.addr & ~(io.addr + 1)
       val lBound = (io.addr ^ mask)(31 downto 2)
       io.region.lBound := lBound
       io.region.rBound := lBound + ((mask + 1)(31 downto 2) |<< 1)
+    }
+    default {
+      io.region.valid := False
     }
   }
 }
@@ -198,6 +203,8 @@ class PmpController(count : Int) extends Component with Pmp {
       setter.io.prev := regions(index - 1).rBound 
     }
     setter.io.addr := pmpaddr(index)
-    regions(index) := setter.io.region
+    when (enable) {
+      regions(index) := setter.io.region
+    }
   }
 }

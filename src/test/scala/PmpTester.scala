@@ -23,7 +23,7 @@ class PmpTester extends FunSuite {
         dut.io.write.valid #= true
         dut.io.select #= false
         dut.io.index #= idx
-        dut.io.write.payload #= BigInt("00000000", 16)
+        dut.io.write.payload #= BigInt("12345678", 16)
         dut.clockDomain.waitSampling(1)
         while (!dut.io.write.ready.toBoolean) {
           dut.clockDomain.waitSampling(1)
@@ -33,7 +33,7 @@ class PmpTester extends FunSuite {
         dut.io.write.valid #= true
         dut.io.select #= true
         dut.io.index #= idx << 2
-        dut.io.write.payload #= BigInt("00880000", 16)
+        dut.io.write.payload #= BigInt("08880000", 16)
         dut.clockDomain.waitSampling(1)
         while (!dut.io.write.ready.toBoolean) {
           dut.clockDomain.waitSampling(1)
@@ -53,7 +53,7 @@ class PmpTester extends FunSuite {
         dut.io.write.valid #= true
         dut.io.select #= false
         dut.io.index #= idx
-        dut.io.write.payload #= BigInt("12345678", 16)
+        dut.io.write.payload #= BigInt("00000000", 16)
         dut.clockDomain.waitSampling(1)
         while (!dut.io.write.ready.toBoolean) {
           dut.clockDomain.waitSampling(1)
