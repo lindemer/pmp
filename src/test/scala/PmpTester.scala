@@ -19,12 +19,25 @@ class PmpTester extends FunSuite {
   test("testbench") {
     compiled.doSim(seed = 2) { dut =>
       dut.clockDomain.forkStimulus(10)
+      for (idx <- 0 until pmps) {
+        dut.io.write.valid #= true
+        dut.io.select #= false
+        dut.io.index #= idx
+        dut.io.write.payload #= BigInt("00000000", 16)
+        dut.clockDomain.waitSampling(1)
+        while (!dut.io.write.ready.toBoolean) {
+          dut.clockDomain.waitSampling(1)
+        }
+      }
       for (idx <- (pmps / 4 - 1) downto 0) {
         dut.io.write.valid #= true
         dut.io.select #= true
         dut.io.index #= idx << 2
         dut.io.write.payload #= BigInt("00880000", 16)
         dut.clockDomain.waitSampling(1)
+        while (!dut.io.write.ready.toBoolean) {
+          dut.clockDomain.waitSampling(1)
+        }
       }
       for (idx <- (pmps / 4 - 1) downto 0) {
         dut.io.write.valid #= true
@@ -32,6 +45,9 @@ class PmpTester extends FunSuite {
         dut.io.index #= idx << 2
         dut.io.write.payload #= BigInt("000088ff", 16)
         dut.clockDomain.waitSampling(1)
+        while (!dut.io.write.ready.toBoolean) {
+          dut.clockDomain.waitSampling(1)
+        }
       }
       for (idx <- 0 until pmps) {
         dut.io.write.valid #= true
@@ -39,6 +55,9 @@ class PmpTester extends FunSuite {
         dut.io.index #= idx
         dut.io.write.payload #= BigInt("12345678", 16)
         dut.clockDomain.waitSampling(1)
+        while (!dut.io.write.ready.toBoolean) {
+          dut.clockDomain.waitSampling(1)
+        }
       }
       for (idx <- 0 until pmps) {
         dut.io.write.valid #= false
