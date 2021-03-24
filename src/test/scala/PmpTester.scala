@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) 2020 Samuel Lindemer <samuel.lindemer@ri.se>
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 package pmp
 
 import org.scalatest.FunSuite
@@ -10,63 +16,126 @@ import scala.util.Random
 
 class PmpTester extends FunSuite {
   var compiled: SimCompiled[PmpController] = null
-  val pmps = 16
+  val count = 16
+
+  var vec0 = Array.fill(count){Random.nextInt(1000000000)}
+  var vec1 = Array.fill(count){Random.nextInt(1000000000)}
 
   test("compile") {
-    compiled = PmpConfig().compile(new PmpController(count = pmps))
+    compiled = PmpConfig().compile(new PmpController(count = count))
   }
 
-  test("testbench") {
+  test("locking") {
     compiled.doSim(seed = 2) { dut =>
       dut.clockDomain.forkStimulus(10)
-      for (idx <- 0 until pmps) {
+
+      // Write the pmpaddr# registers.
+      for (idx <- 0 until count) {
         dut.io.write.valid #= true
-        dut.io.select #= false
+        dut.io.config #= false
         dut.io.index #= idx
-        dut.io.write.payload #= BigInt("12345678", 16)
+        dut.io.write.payload #= vec0(idx)
         dut.clockDomain.waitSampling(1)
         while (!dut.io.write.ready.toBoolean) {
           dut.clockDomain.waitSampling(1)
         }
       }
-      for (idx <- (pmps / 4 - 1) downto 0) {
+
+      // Write the pmpcfg# registers.
+      for (idx <- Range(0, count, 4)) {
         dut.io.write.valid #= true
-        dut.io.select #= true
-        dut.io.index #= idx << 2
-        dut.io.write.payload #= BigInt("08880000", 16)
-        dut.clockDomain.waitSampling(1)
-        while (!dut.io.write.ready.toBoolean) {
-          dut.clockDomain.waitSampling(1)
-        }
-      }
-      for (idx <- (pmps / 4 - 1) downto 0) {
-        dut.io.write.valid #= true
-        dut.io.select #= true
-        dut.io.index #= idx << 2
-        dut.io.write.payload #= BigInt("000088ff", 16)
-        dut.clockDomain.waitSampling(1)
-        while (!dut.io.write.ready.toBoolean) {
-          dut.clockDomain.waitSampling(1)
-        }
-      }
-      for (idx <- 0 until pmps) {
-        dut.io.write.valid #= true
-        dut.io.select #= false
+        dut.io.config #= true
         dut.io.index #= idx
-        dut.io.write.payload #= BigInt("00000000", 16)
+        dut.io.write.payload #= BigInt("07880789", 16)
         dut.clockDomain.waitSampling(1)
         while (!dut.io.write.ready.toBoolean) {
           dut.clockDomain.waitSampling(1)
         }
       }
-      for (idx <- 0 until pmps) {
+
+      // Overwrite the pmpcfg# registers.
+      for (idx <- Range(0, count, 4)) {
+        dut.io.write.valid #= true
+        dut.io.config #= true
+        dut.io.index #= idx
+        dut.io.write.payload #= BigInt("03030303", 16)
+        dut.clockDomain.waitSampling(1)
+        while (!dut.io.write.ready.toBoolean) {
+          dut.clockDomain.waitSampling(1)
+        }
+      }
+      
+      // Check all but the last pmpcfg# registers.
+      if (count > 4) {
+        for (idx <- Range(0, count - 4, 4)) {
+          dut.io.write.valid #= false
+          dut.io.config #= true
+          dut.io.index #= idx
+          dut.clockDomain.waitSampling(1)
+          assert(dut.io.read.toBigInt == BigInt("87888789", 16), 
+            "dut.io.readData missmatch")
+        }
+      }
+
+      // Check the last pmpcfg#. Only the last pmp#cfg should be unlocked.
+      dut.io.write.valid #= false
+      dut.io.config #= true
+      dut.io.index #= count - 1
+      dut.clockDomain.waitSampling(1)
+      assert(dut.io.read.toBigInt == BigInt("03888789", 16), 
+        "dut.io.readData missmatch")
+      
+      // Write the pmpaddr# registers.
+      for (idx <- 0 until count) {
+        dut.io.write.valid #= true
+        dut.io.config #= false
+        dut.io.index #= idx
+        dut.io.write.payload #= vec1(idx)
+        dut.clockDomain.waitSampling(1)
+        while (!dut.io.write.ready.toBoolean) {
+          dut.clockDomain.waitSampling(1)
+        }
+      }
+
+      // Check all but the last pmpaddr# registers.
+      for (idx <- 0 until count - 1) {
         dut.io.write.valid #= false
-        dut.io.select #= false
+        dut.io.config #= false
         dut.io.index #= idx
         dut.clockDomain.waitSampling(1)
-        assert(dut.io.read.toBigInt == 0x12345678, 
+        assert(dut.io.read.toBigInt == BigInt(vec0(idx)),
           "dut.io.readData missmatch")
       }
+
+      // Check the last pmpaddr#. Only this one should be overwritten.
+      dut.io.write.valid #= false
+      dut.io.config #= false
+      dut.io.index #= count - 1
+      dut.clockDomain.waitSampling(1)
+      assert(dut.io.read.toBigInt == BigInt(vec1(count - 1)),
+        "dut.io.readData missmatch")
+
+    }
+  }
+
+  test("tor") {
+    compiled.doSim(seed = 2) { dut =>
+      dut.clockDomain.forkStimulus(10)
+
+    }
+  }
+
+  test("na4") {
+    compiled.doSim(seed = 2) { dut =>
+      dut.clockDomain.forkStimulus(10)
+
+    }
+  }
+
+  test("napot") {
+    compiled.doSim(seed = 2) { dut =>
+      dut.clockDomain.forkStimulus(10)
+
     }
   }
 }

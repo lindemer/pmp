@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) 2020 Samuel Lindemer <samuel.lindemer@ri.se>
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 package pmp
 
 import spinal.core._
@@ -71,7 +77,6 @@ trait Pmp {
 
 class PmpRegion() extends Bundle {
   val lBound, rBound = UInt(30 bits)
-  val valid = Bool
 }
 
 class PmpSetter() extends Component with Pmp {
@@ -85,7 +90,6 @@ class PmpSetter() extends Component with Pmp {
   val shifted = io.addr(31 downto 2)
   io.region.lBound := shifted
   io.region.rBound := shifted
-  io.region.valid := True
 
   switch (io.a) {
     is (TOR) {
@@ -98,10 +102,7 @@ class PmpSetter() extends Component with Pmp {
       val mask = io.addr & ~(io.addr + 1)
       val lBound = (io.addr ^ mask)(31 downto 2)
       io.region.lBound := lBound
-      io.region.rBound := lBound + ((mask + 1)(31 downto 2) |<< 1)
-    }
-    default {
-      io.region.valid := False
+      io.region.rBound := lBound + ((mask + 1) |<< 3)(31 downto 2)
     }
   }
 }
@@ -110,23 +111,25 @@ class PmpController(count : Int) extends Component with Pmp {
   assert(count % 4 == 0)
   assert(count <= 16)
 
-  val io = new Bundle {
-    val select = in Bool
-    val index = in UInt(log2Up(count) bits)
-    val read = out UInt(word bits)
-    val write = slave Stream(UInt(word bits))
-  }
-
+  val regions = Mem(new PmpRegion(), count)
   val pmpaddr = Mem(UInt(word bits), count)
   val pmpcfg = Reg(Bits(8 * count bits)) init(0)
-  val cfgSelect = io.index(log2Up(count) - 1 downto 2)
-  val pmpcfgN = pmpcfg.subdivideIn(word bits)(cfgSelect)
+
+  val io = new Bundle {
+    val config = in Bool
+    val index = in UInt(log2Up(count) bits)
+    val read = out Bits(word bits)
+    val write = slave Stream(Bits(word bits))
+  }
+
+  val cfgSel = io.index(log2Up(count) - 1 downto 2)
+  val pmpcfgN = pmpcfg.subdivideIn(word bits)(cfgSel)
   val pmpNcfg = pmpcfgN.subdivideIn(8 bits)
   
   val csr = new Area {
-    when (io.select) {
+    when (io.config) {
       when (io.write.valid) {
-        switch(cfgSelect) {
+        switch(cfgSel) {
           for (i <- 0 until (count / 4)) {
             is(i) {
               for (j <- Range(0, word, 8)) {
@@ -134,7 +137,7 @@ class PmpController(count : Int) extends Component with Pmp {
                 val writeRange = j + word * i + lBit downto j + word * i
                 val locked = pmpcfg(j + word * i + lBit)
                 when (~locked) {
-                  val newCfg = io.write.payload.asBits(readRange)
+                  val newCfg = io.write.payload(readRange)
                   pmpcfg(writeRange).assignFromBits(newCfg)
                   if (j != 0 || i != 0) {
                     when (newCfg(lBit) & newCfg(aBits) === TOR) {
@@ -153,23 +156,21 @@ class PmpController(count : Int) extends Component with Pmp {
         val lock = pmpNcfg(io.index(1 downto 0))(lBit)
         pmpaddr.write(
           io.index,
-          io.write.payload,
-          io.write.valid & ~io.select & ~lock
+          io.write.payload.asUInt,
+          io.write.valid & ~io.config & ~lock
         )
       }
-      io.read := pmpaddr.readAsync(io.index)
+      io.read := pmpaddr.readAsync(io.index).asBits
     }
   }
 
-  val regions = Mem(new PmpRegion(), count)
-
   val pipeline = new Area {
+    val setter = new PmpSetter()
     val counter = Reg(UInt(2 bits)) init(0)
     val enable = RegInit(False)
-    val setter = new PmpSetter()
-    val index = cfgSelect @@ counter
+    val index = cfgSel @@ counter
     
-    when (io.select) {
+    when (io.config) {
       when (io.write.valid & ~enable) {
         enable := True
         io.write.ready := False
