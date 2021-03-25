@@ -67,7 +67,7 @@ trait Pmp {
   def NA4 = 2
   def NAPOT = 3
 
-  def word = 32
+  def xlen = 32
   def rBit = 0
   def wBit = 1
   def xBit = 2
@@ -78,7 +78,7 @@ trait Pmp {
 class PmpSetter() extends Component with Pmp {
   val io = new Bundle {
     val a = in Bits(2 bits)
-    val addr = in UInt(word bits)
+    val addr = in UInt(xlen bits)
     val prevHi = in UInt(30 bits)
     val boundLo, boundHi = out UInt(30 bits)
   }
@@ -107,19 +107,20 @@ class PmpController(count : Int) extends Component with Pmp {
   assert(count % 4 == 0)
   assert(count <= 16)
 
-  val pmpaddr = Mem(UInt(word bits), count)
+  val pmpaddr = Mem(UInt(xlen bits), count)
   val pmpcfg = Reg(Bits(8 * count bits)) init(0)
   val boundLo, boundHi = Mem(UInt(30 bits), count)
 
   val io = new Bundle {
     val config = in Bool
     val index = in UInt(log2Up(count) bits)
-    val read = out Bits(word bits)
-    val write = slave Stream(Bits(word bits))
+    val read = out Bits(xlen bits)
+    val write = slave Stream(Bits(xlen bits))
   }
 
   val cfgSel = io.index(log2Up(count) - 1 downto 2)
-  val pmpcfgN = pmpcfg.subdivideIn(word bits)(cfgSel)
+  val pmpcfgs = pmpcfg.subdivideIn(xlen bits)
+  val pmpcfgN = pmpcfgs(cfgSel)
   val pmpNcfg = pmpcfgN.subdivideIn(8 bits)
   
   val csr = new Area {
@@ -128,16 +129,15 @@ class PmpController(count : Int) extends Component with Pmp {
         switch(cfgSel) {
           for (i <- 0 until (count / 4)) {
             is(i) {
-              for (j <- Range(0, word, 8)) {
-                val readRange = j + lBit downto j
-                val writeRange = j + word * i + lBit downto j + word * i
-                val locked = pmpcfg(j + word * i + lBit)
+              for (j <- Range(0, xlen, 8)) {
+                val bitRange = j + xlen * i + lBit downto j + xlen * i
+                val overwrite = io.write.payload.subdivideIn(8 bits)(j / 8)
+                val locked = pmpcfgs(i).subdivideIn(8 bits)(j / 8)(lBit)
                 when (~locked) {
-                  val newCfg = io.write.payload(readRange)
-                  pmpcfg(writeRange).assignFromBits(newCfg)
+                  pmpcfg(bitRange).assignFromBits(overwrite)
                   if (j != 0 || i != 0) {
-                    when (newCfg(lBit) & newCfg(aBits) === TOR) {
-                      pmpcfg(j + word * i - 1) := True
+                    when (overwrite(lBit) & overwrite(aBits) === TOR) {
+                      pmpcfg(j + xlen * i - 1) := True
                     }
                   }
                 }
@@ -162,17 +162,19 @@ class PmpController(count : Int) extends Component with Pmp {
 
   val pipeline = new Area {
     val setter = new PmpSetter()
-    val counter = Reg(UInt(2 bits)) init(0)
     val enable = RegInit(False)
-    val index = cfgSel @@ counter
+    val counter = Reg(UInt(log2Up(count) bits))
+    val setNext = RegInit(False)
     
     when (io.config) {
       when (io.write.valid & ~enable) {
         enable := True
         io.write.ready := False
+        counter := io.index
+        counter(1 downto 0) := 0
       }.elsewhen (enable) {
         counter := counter + 1
-        when (counter === 3) {
+        when (counter(1 downto 0) === 3) {
           enable := False
           io.write.ready := True
         } otherwise {
@@ -184,25 +186,34 @@ class PmpController(count : Int) extends Component with Pmp {
     } otherwise {
       when (io.write.valid & ~enable) {
         enable := True
-        counter := io.index(1 downto 0)
+        counter := io.index
         io.write.ready := False
+        when (io.index =/= (count - 1)) {
+          setNext := True
+        } otherwise {
+          setNext := False
+        }
+      }.elsewhen (setNext) {
+        io.write.ready := False
+        counter := counter + 1
+        setNext := False
       } otherwise {
         enable := False
-        counter := 0
         io.write.ready := True
       }
     }
 
-    setter.io.a := pmpNcfg(counter)(aBits)
-    when (index === 0) {
+    val sel = counter(log2Up(count) - 1 downto 2)
+    setter.io.a := pmpcfgs(sel).subdivideIn(8 bits)(counter(1 downto 0))(aBits)
+    when (counter === 0) {
       setter.io.prevHi := 0
     } otherwise {
-      setter.io.prevHi := boundHi(index - 1)
+      setter.io.prevHi := boundHi(counter - 1)
     }
-    setter.io.addr := pmpaddr(index)
+    setter.io.addr := pmpaddr(counter)
     when (enable) {
-      boundLo(index) := setter.io.boundLo
-      boundHi(index) := setter.io.boundHi
+      boundLo(counter) := setter.io.boundLo
+      boundHi(counter) := setter.io.boundHi
     }
   }
 }
