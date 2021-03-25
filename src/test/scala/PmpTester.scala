@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020 Samuel Lindemer <samuel.lindemer@ri.se>
+ * Copyright (c) 2021 Samuel Lindemer <samuel.lindemer@ri.se>
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -121,6 +121,38 @@ class PmpTester extends FunSuite {
   test("tor") {
     compiled.doSim(seed = 2) { dut =>
       dut.clockDomain.forkStimulus(10)
+
+      // Write the pmpcfg# registers.
+      for (idx <- Range(0, count, 4)) {
+        dut.io.write.valid #= true
+        dut.io.config #= true
+        dut.io.index #= idx
+        dut.io.write.payload #= BigInt("08080808", 16)
+        dut.clockDomain.waitSampling(1)
+        while (!dut.io.write.ready.toBoolean) {
+          dut.clockDomain.waitSampling(1)
+        }
+      }
+
+      // Write the pmpaddr# registers.
+      for (idx <- 0 until count) {
+        dut.io.write.valid #= true
+        dut.io.config #= false
+        dut.io.index #= idx
+        dut.io.write.payload #= 4 << idx
+        dut.clockDomain.waitSampling(1)
+        while (!dut.io.write.ready.toBoolean) {
+          dut.clockDomain.waitSampling(1)
+        }
+      }
+
+      // Check all but the first pmpaddr# registers.
+      // for (idx <- 1 until count) {
+      //   assert(dut.boundLo(idx).toBigInt == BigInt(32 << (idx - 3)), 
+      //     "dut.regions(idx).lBound missmatch")
+      //   assert(dut.regions(idx).rBound.toBigInt == BigInt(32 << (idx - 2)), 
+      //     "dut.regions(idx).rBound missmatch")
+      // }
 
     }
   }

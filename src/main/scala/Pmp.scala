@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020 Samuel Lindemer <samuel.lindemer@ri.se>
+ * Copyright (c) 2021 Samuel Lindemer <samuel.lindemer@ri.se>
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -75,34 +75,30 @@ trait Pmp {
   def lBit = 7
 }
 
-class PmpRegion() extends Bundle {
-  val lBound, rBound = UInt(30 bits)
-}
-
 class PmpSetter() extends Component with Pmp {
   val io = new Bundle {
     val a = in Bits(2 bits)
     val addr = in UInt(word bits)
-    val prev = in UInt(30 bits)
-    val region = out(new PmpRegion())
+    val prevHi = in UInt(30 bits)
+    val boundLo, boundHi = out UInt(30 bits)
   }
 
   val shifted = io.addr(31 downto 2)
-  io.region.lBound := shifted
-  io.region.rBound := shifted
+  io.boundLo := shifted
+  io.boundHi := shifted
 
   switch (io.a) {
     is (TOR) {
-      io.region.lBound := io.prev
+      io.boundLo := io.prevHi
     }
     is (NA4) {
-      io.region.rBound := shifted + 1
+      io.boundHi := shifted + 1
     }
     is (NAPOT) {
       val mask = io.addr & ~(io.addr + 1)
-      val lBound = (io.addr ^ mask)(31 downto 2)
-      io.region.lBound := lBound
-      io.region.rBound := lBound + ((mask + 1) |<< 3)(31 downto 2)
+      val boundLo = (io.addr ^ mask)(31 downto 2)
+      io.boundLo := boundLo
+      io.boundHi := boundLo + ((mask + 1) |<< 3)(31 downto 2)
     }
   }
 }
@@ -111,9 +107,9 @@ class PmpController(count : Int) extends Component with Pmp {
   assert(count % 4 == 0)
   assert(count <= 16)
 
-  val regions = Mem(new PmpRegion(), count)
   val pmpaddr = Mem(UInt(word bits), count)
   val pmpcfg = Reg(Bits(8 * count bits)) init(0)
+  val boundLo, boundHi = Mem(UInt(30 bits), count)
 
   val io = new Bundle {
     val config = in Bool
@@ -199,13 +195,14 @@ class PmpController(count : Int) extends Component with Pmp {
 
     setter.io.a := pmpNcfg(counter)(aBits)
     when (index === 0) {
-      setter.io.prev := 0
+      setter.io.prevHi := 0
     } otherwise {
-      setter.io.prev := regions(index - 1).rBound 
+      setter.io.prevHi := boundHi(index - 1)
     }
     setter.io.addr := pmpaddr(index)
     when (enable) {
-      regions(index) := setter.io.region
+      boundLo(index) := setter.io.boundLo
+      boundHi(index) := setter.io.boundHi
     }
   }
 }
