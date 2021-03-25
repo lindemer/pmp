@@ -6,6 +6,7 @@
 
 package pmp
 
+import spinal.core.sim._
 import spinal.core._
 import spinal.lib._
 
@@ -96,9 +97,9 @@ class PmpSetter() extends Component with Pmp {
     }
     is (NAPOT) {
       val mask = io.addr & ~(io.addr + 1)
-      val boundLo = (io.addr ^ mask)(31 downto 2)
+      val boundLo = (io.addr ^ mask)(29 downto 0)
       io.boundLo := boundLo
-      io.boundHi := boundLo + ((mask + 1) |<< 3)(31 downto 2)
+      io.boundHi := boundLo + ((mask + 1) |<< 3)(29 downto 0)
     }
   }
 }
@@ -109,7 +110,7 @@ class PmpController(count : Int) extends Component with Pmp {
 
   val pmpaddr = Mem(UInt(xlen bits), count)
   val pmpcfg = Reg(Bits(8 * count bits)) init(0)
-  val boundLo, boundHi = Mem(UInt(30 bits), count)
+  val boundLo, boundHi = Mem(UInt(30 bits), count) simPublic()
 
   val io = new Bundle {
     val config = in Bool
@@ -170,8 +171,7 @@ class PmpController(count : Int) extends Component with Pmp {
       when (io.write.valid & ~enable) {
         enable := True
         io.write.ready := False
-        counter := io.index
-        counter(1 downto 0) := 0
+        counter := io.index(log2Up(count) - 1 downto 2) @@ U"2'00"
       }.elsewhen (enable) {
         counter := counter + 1
         when (counter(1 downto 0) === 3) {

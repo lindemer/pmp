@@ -20,12 +20,13 @@ class PmpTester extends FunSuite {
 
   var vec0 = Array.fill(count){Random.nextInt(1000000000)}
   var vec1 = Array.fill(count){Random.nextInt(1000000000)}
+  var vec2 = (0 until count).map(idx => 0x00ffbfff >> (16 - idx))
 
   test("compile") {
     compiled = PmpConfig().compile(new PmpController(count = count))
   }
 
-  test("locking") {
+  test("lock") {
     compiled.doSim(seed = 2) { dut =>
       dut.clockDomain.forkStimulus(10)
 
@@ -122,6 +123,18 @@ class PmpTester extends FunSuite {
     compiled.doSim(seed = 2) { dut =>
       dut.clockDomain.forkStimulus(10)
 
+      // Write the pmpaddr# registers.
+      for (idx <- 0 until count) {
+        dut.io.write.valid #= true
+        dut.io.config #= false
+        dut.io.index #= idx
+        dut.io.write.payload #= 4 << idx
+        dut.clockDomain.waitSampling(1)
+        while (!dut.io.write.ready.toBoolean) {
+          dut.clockDomain.waitSampling(1)
+        }
+      }
+
       // Write the pmpcfg# registers.
       for (idx <- Range(0, count, 4)) {
         dut.io.write.valid #= true
@@ -133,6 +146,28 @@ class PmpTester extends FunSuite {
           dut.clockDomain.waitSampling(1)
         }
       }
+
+      dut.clockDomain.waitSampling(1)
+
+      assert(dut.boundLo.getBigInt(0) == BigInt(0), 
+        "dut.boundLo(idx) missmatch")
+      assert(dut.boundHi.getBigInt(0) == BigInt(1), 
+        "dut.boundHi(idx) missmatch")
+      
+      // Check all but the first pmpaddr# registers.
+      for (idx <- 1 until count) {
+        assert(dut.boundLo.getBigInt(idx) == BigInt(1 << (idx - 1)), 
+          "dut.boundLo(idx) missmatch")
+         assert(dut.boundHi.getBigInt(idx) == BigInt(1 << idx), 
+           "dut.boundHi(idx) missmatch")
+      }
+
+    }
+  }
+
+  test("na4") {
+    compiled.doSim(seed = 2) { dut =>
+      dut.clockDomain.forkStimulus(10)
 
       // Write the pmpaddr# registers.
       for (idx <- 0 until count) {
@@ -146,20 +181,27 @@ class PmpTester extends FunSuite {
         }
       }
 
-      // Check all but the first pmpaddr# registers.
-      for (idx <- 1 until count) {
-        assert(dut.boundLo(idx).toBigInt == BigInt(32 << (idx - 3)), 
-          "dut.boundLo(idx) missmatch")
-        // assert(dut.boundHi(idx).toBigInt == BigInt(32 << (idx - 2)), 
-        //   "dut.boundHi(idx) missmatch")
+      // Write the pmpcfg# registers.
+      for (idx <- Range(0, count, 4)) {
+        dut.io.write.valid #= true
+        dut.io.config #= true
+        dut.io.index #= idx
+        dut.io.write.payload #= BigInt("10101010", 16)
+        dut.clockDomain.waitSampling(1)
+        while (!dut.io.write.ready.toBoolean) {
+          dut.clockDomain.waitSampling(1)
+        }
       }
 
-    }
-  }
+      dut.clockDomain.waitSampling(1)
 
-  test("na4") {
-    compiled.doSim(seed = 2) { dut =>
-      dut.clockDomain.forkStimulus(10)
+      // Check all pmpaddr# registers.
+      for (idx <- 0 until count) {
+        assert(dut.boundLo.getBigInt(idx) == BigInt(1 << idx), 
+          "dut.boundLo(idx) missmatch")
+         assert(dut.boundHi.getBigInt(idx) == BigInt((1 << idx) + 1), 
+           "dut.boundHi(idx) missmatch")
+      }
 
     }
   }
@@ -167,6 +209,44 @@ class PmpTester extends FunSuite {
   test("napot") {
     compiled.doSim(seed = 2) { dut =>
       dut.clockDomain.forkStimulus(10)
+
+      // Write the pmpaddr# registers.
+      for (idx <- 0 until count) {
+        dut.io.write.valid #= true
+        dut.io.config #= false
+        dut.io.index #= idx
+        dut.io.write.payload #= vec2(idx)
+        dut.clockDomain.waitSampling(1)
+        while (!dut.io.write.ready.toBoolean) {
+          dut.clockDomain.waitSampling(1)
+        }
+      }
+
+      // Write the pmpcfg# registers.
+      for (idx <- Range(0, count, 4)) {
+        dut.io.write.valid #= true
+        dut.io.config #= true
+        dut.io.index #= idx
+        dut.io.write.payload #= BigInt("18181818", 16)
+        dut.clockDomain.waitSampling(1)
+        while (!dut.io.write.ready.toBoolean) {
+          dut.clockDomain.waitSampling(1)
+        }
+      }
+
+      dut.clockDomain.waitSampling(1)
+
+      // Check all pmpaddr# registers.
+      for (idx <- 1 until count) {
+        val mask = vec2(idx) & ~(vec2(idx) + 1)
+        val boundLo = (vec2(idx) ^ mask)
+        val boundHi = boundLo + ((mask + 1) << 3)
+
+        assert(dut.boundLo.getBigInt(idx) == BigInt(boundLo), 
+          "dut.boundLo(idx) missmatch")
+         assert(dut.boundHi.getBigInt(idx) == BigInt(boundHi), 
+           "dut.boundHi(idx) missmatch")
+      }
 
     }
   }
