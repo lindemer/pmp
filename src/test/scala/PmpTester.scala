@@ -147,12 +147,12 @@ class PmpTester extends FunSuite {
       }
 
       // Check all but the first pmpaddr# registers.
-      // for (idx <- 1 until count) {
-      //   assert(dut.boundLo(idx).toBigInt == BigInt(32 << (idx - 3)), 
-      //     "dut.boundLo(idx) missmatch")
-      //   assert(dut.boundHi(idx).toBigInt == BigInt(32 << (idx - 2)), 
-      //     "dut.boundHi(idx) missmatch")
-      // }
+      for (idx <- 1 until count) {
+        assert(dut.boundLo(idx).toBigInt == BigInt(32 << (idx - 3)), 
+          "dut.boundLo(idx) missmatch")
+        // assert(dut.boundHi(idx).toBigInt == BigInt(32 << (idx - 2)), 
+        //   "dut.boundHi(idx) missmatch")
+      }
 
     }
   }
